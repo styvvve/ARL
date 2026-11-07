@@ -11,6 +11,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from shutil import disk_usage
 
 RACINE = Path(__file__).resolve().parents[2]
 URL_OLLAMA = os.getenv("ARL_OLLAMA_URL", "http://localhost:11434")
@@ -36,6 +37,7 @@ def execute() -> int:
     notes = RACINE / "data" / "notes"
     nb = len(list(notes.glob("*.md")))
     print(f"Notes         : {nb} fichier(s) dans {notes}", "-> OK" if nb else "-> ÉCHEC")
+    print(f"Disque libre  : {disk_usage(Path.home()).free / 1024**3} Go")
     ok &= nb > 0
     modeles = modeles_ollama()
     if modeles is None:
