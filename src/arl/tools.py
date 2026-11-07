@@ -24,7 +24,9 @@ def _evaluer(noeud: ast.AST) -> float:
             raise ValueError("exposant trop grand")
         return _OPS[type(noeud.op)](left, right)
     if isinstance(noeud, ast.UnaryOp) and type(noeud.op) in _OPS:
-        return _OPS[type(noeud.op)](_evaluer(noeud.operand))
+        return _OPS[type(noeud.op)](_evaluer(noeud.operand))    if isinstance(noeud, ast.Num):
+        raise ValueError(f"'{noeud.n}' n'est pas un nombre ; remplace le par sa valeur réelle"
+                         f"(trouve la d'abord avec rechercher_notes ou lire_note).")
     raise ValueError(f"élément non autorisé : {type(noeud).__name__}")
 
 

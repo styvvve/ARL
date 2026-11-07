@@ -15,6 +15,8 @@ BASE_URL = os.getenv("ARL_OLLAMA_URL", "http://localhost:11434") + "/v1"
 MODELE = os.getenv("ARL_MODELE", "qwen3:1.7b")
 MAX_ETAPES = int(os.getenv("ARL_MAX_ETAPES", "6"))
 DOSSIER_TRACES = Path(os.getenv("ARL_DOSSIER_TRACES", "traces"))
+BUDGET_CONTEXTE = int(os.getenv("ARL_BUDGET_CONTEXTE", "6000"))
+RETIRE = "[observation retirée pour respecter le budget de contexte]"
 
 CONSIGNE = "Tu es l'assistant de notes de l'équipe. Réponds en français brièvement."
 
@@ -23,10 +25,31 @@ CONSIGNE_OUTILS = (
     "Pour toute information sur l'équipe ou ses projets, utilise les outils : "
     "rechercher_notes, puis lire_note. Pour tout calcul, utilise calculer. "
     "Si un outil renvoie ERREUR, corrige ton appel."
+    "Appelle les outils un par un" # Ajout car (petit modele) il peut vouloir utiliser tous outils en meme temps et ainsi mal utiliser un outil (ex calculer avec des valeurs inexistantes/pas encore acquis)
 )
 
 def _client() -> OpenAI:
     return OpenAI(base_url=BASE_URL, api_key="ollama")  # clé exigée par le SDK, ignorée par Ollama
+
+
+def estimer_jetons(messages: list[dict]) -> int:
+    """Estimation grossière : environ 4 caractères par jeton. Suffisant pour un garde-fou."""
+    return len(json.dumps(messages, ensure_ascii=False)) // 4
+
+
+def compacter(messages: list[dict], budget: int = BUDGET_CONTEXTE) -> int:
+    """Remplace les plus anciennes observations d'outils tant que le budget est dépassé.
+    Garde toujours la consigne, la question et les deux dernières observations.
+    Renvoie le nombre d'observations retirées."""
+    retirees = 0
+    outils = [m for m in messages if m.get("role") == "tool"]
+    for m in outils[:-2]:
+        if estimer_jetons(messages) <= budget:
+            break
+    if m["content"] != RETIRE:
+        m["content"], retirees = RETIRE, retirees + 1
+    return retirees
+
 
 def demander_simple(question: str, historique: list[dict] | None = None) -> tuple[str, float]:
     """Envoie une question (et éventuellement un historique) ; renvoie (réponse, durée)."""
