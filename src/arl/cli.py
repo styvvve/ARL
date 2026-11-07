@@ -12,13 +12,19 @@ def main(argv: list[str] | None = None) -> int:
     sous.add_parser("diagnostic", help="vérifier l'environnement")
     demander_parser = sous.add_parser("demander", help="Demander quelque chose")
     demander_parser.add_argument("texte", help="la question à poser")
+    demander_parser.add_argument("--sans-outils", action="store_true", help="ne pas utiliser les outils")
     args = parser.parse_args(argv)
     if args.commande == "diagnostic":
         return diagnostic.execute()
     elif args.commande == "demander":
-        texte, duree = agent.demander_simple(args.texte)
-        print(texte)
-        print(f"({duree:.1f} secondes)")
+        if args.sans_outils:
+            texte, duree = agent.demander_simple(args.texte)
+            print(texte)
+            print(f"({duree:.1f} secondes)")
+            return 0
+        resultat = agent.lancer_agent(args.texte)
+        print("\nRéponse :", resultat["reponse"])
+        print(f"({resultat['statut']}, {len(resultat['etapes'])} étape(s), trace {resultat['id']})")
         return 0
     return 1
 
