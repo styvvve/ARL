@@ -23,7 +23,7 @@ def build_agent(settings: config.Settings, display: bool = True) -> Agent:
 def display_result(r: Result) -> None:
     print("\nRéponse :", r.response)
     v = r.verification
-    state = "vérifiée" if v["valide"] else "À VÉRIFIER : " + " ; ".join(v["problemes"])
+    state = "vérifiée" if v["valid"] else "À VÉRIFIER : " + " ; ".join(v["problems"])
     print(f"({r.status}, {len(r.steps)} étape(s), {r.duration_s:.1f} s, sources {v['citations'] or 'aucune'}, "
           f"{state}, trace {r.id})")
 
