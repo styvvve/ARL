@@ -6,3 +6,4 @@ traces/
 runs/
 exports/
 data/
+.DS_Store

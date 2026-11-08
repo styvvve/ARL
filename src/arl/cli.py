@@ -33,7 +33,7 @@ def chat(agent: Agent, memory_size: int) -> int:
     history: list[dict] = []
     print("Conversation (ligne vide pour quitter).")
     while True:
-        try:
+        try:    
             question = input("\nToi > ").strip()
         except EOFError:
             break

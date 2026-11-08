@@ -5,9 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-reliability-lab"
 version = "0.0.0"
-description = "Agent Reliability Lab : assistant de notes locales, fil rouge du cours sur les agents d'IA"
+description = "Agent Reliability Lab : assistant de notes locales"
 requires-python = ">=3.10"
 dependencies = ["openai>=1.40,<4", "python-dotenv>=1.0"]
+
+[project.optional-dependencies]
+api = ["fastapi>=0.162,<1", "uvicorn[standard]>=0.54,<1"]
 
 [project.scripts]
 arl = "arl.cli:main"
