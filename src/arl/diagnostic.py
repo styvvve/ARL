@@ -34,6 +34,18 @@ def _writable(directory: Path) -> bool:
         directory = directory.parent
     return os.access(directory, os.W_OK)
 
+def checks(settings: config.Settings) -> dict[str, dict]:
+    """Vérifications sans affichage : réutilisées par la CLI et par l'API."""
+    count = len(list(settings.notes_dir.glob("*.md")))
+    models = ollama_models(settings.ollama_url)
+    return {
+        "notes": {"ok": count > 0, "detail": f"{count} fichier(s) dans {settings.notes_dir}"},
+        "traces": {"ok": _writable(settings.traces_dir), "detail": str(settings.traces_dir.resolve())},
+        "ollama": {"ok": models is not None, "detail": settings.ollama_url if models is None else
+                   f"{settings.ollama_url}, {len(models)} modèle(s) : {', '.join(models) or 'aucun'}"},
+        "model": {"ok": bool(models) and settings.model in models, "detail": settings.model},
+    }
+
 
 def execute() -> int:
     ok = True
@@ -52,14 +64,11 @@ def execute() -> int:
         settings = config.Settings()
         ok = False
 
-    count = len(list(settings.notes_dir.glob("*.md")))
-    print(f"Notes         : {count} fichier(s) dans {settings.notes_dir}", "-> OK" if count else "-> ÉCHEC")
-    ok &= count > 0
-
-    traces_ok = _writable(settings.traces_dir)
-    print(f"Traces        : {settings.traces_dir.resolve()}",
-          "-> OK" if traces_ok else "-> ÉCHEC : dossier non inscriptible")
-    ok &= traces_ok
+    c = checks(settings)
+    print(f"Notes         : {c['notes']['detail']}", "-> OK" if c["notes"]["ok"] else "-> ÉCHEC")
+    print(f"Traces        : {c['traces']['detail']}",
+          "-> OK" if c["traces"]["ok"] else "-> ÉCHEC : dossier non inscriptible")
+    ok &= c["notes"]["ok"] and c["traces"]["ok"]
 
     print(f"Disque libre  : {disk_usage(Path.home()).free / 1024**3:.1f} Go")
 
@@ -69,13 +78,13 @@ def execute() -> int:
     else:
         print("Paquet openai : OK")
 
-    models = ollama_models(settings.ollama_url)
-    if models is None:
+    # Ollama et le modèle restent non bloquants en CLI ; pour l'API (/diagnostic), ils le sont
+    if not c["ollama"]["ok"]:
         print(f"Ollama        : aucun serveur sur {settings.ollama_url} -> lance l'application Ollama "
               "ou `ollama serve` (non bloquant pour les modules 1 et 2)")
     else:
-        print(f"Ollama        : OK, {len(models)} modèle(s) : {', '.join(models) or 'aucun'}")
-        if settings.model not in models:
+        print(f"Ollama        : OK, {c['ollama']['detail']}")
+        if not c["model"]["ok"]:
             print(f"Modèle        : {settings.model} absent -> `ollama pull {settings.model}`")
     print("\nDiagnostic :", "prêt" if ok else "à corriger")
     return 0 if ok else 1

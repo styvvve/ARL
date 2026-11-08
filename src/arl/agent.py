@@ -80,16 +80,16 @@ class Agent:
             messages.append(output.message)  # message COMPLET renvoyé ensuite
             r.entry_token += output.entry_token or 0
             r.exit_token += output.exit_token or 0
-            step = {"etape": number, "latence_s": output.latency_s, "observations_retirees": removed,
-                     "jetons_entree": output.entry_token, "jetons_sortie": output.exit_token,
-                     "appels": []}
+            step = {"step_number": number, "latency_s": output.latency_s, "removed_observations": removed,
+                     "entry_token": output.entry_token, "exit_token": output.exit_token,
+                     "calls": []}
             r.steps.append(step)
             if not output.calls:  # DÉCISION : le modèle a fini
                 missing = prompts.MISSING_MARKER.rstrip(".").lower() in output.content.lower()
                 # garde fou pour s'il donne une rep sans aucune note lue -> relance
                 if not notes_read and not missing and reminders < MAX_REMINDERS:
                     reminders += 1
-                    step["relance"] = True
+                    step["reminder"] = True
                     messages.append({"role": "user", "content": REMINDER}) #reagit mieux quand c'est un user
                     continue
                 r.status, r.response = "termine", output.content
@@ -103,8 +103,8 @@ class Agent:
                 if call.name == "lire_note" and not result.startswith("ERREUR"):
                     notes_read[arguments["name"]] = result
                 observations.append(result)
-                step["appels"].append({"outil": call.name, "arguments": arguments,
-                                        "resultat": result[:300]})
+                step["calls"].append({"tool": call.name, "arguments": arguments,
+                                      "result": result[:300]})
                 if self.display:
                     print(f"  [outil] {call.name}({arguments}) -> {result[:70]!r}")
                 messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
@@ -113,6 +113,6 @@ class Agent:
         v = citations.verify(r.response, notes_read, observations, question,
                              require_citation=r.status == "termine" and not missing)
         r.notes_read = sorted(notes_read)
-        r.verification = {"valide": v.is_valid, "citations": v.citations, "problemes": v.problems}
+        r.verification = {"valid": v.is_valid, "citations": v.citations, "problems": v.problems}
         self.report.write(asdict(r))
         return r
