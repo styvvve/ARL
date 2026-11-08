@@ -7,7 +7,7 @@ name = "agent-reliability-lab"
 version = "0.0.0"
 description = "Agent Reliability Lab : assistant de notes locales, fil rouge du cours sur les agents d'IA"
 requires-python = ">=3.10"
-dependencies = ["openai>=1.40,<4"]
+dependencies = ["openai>=1.40,<4", "python-dotenv>=1.0"]
 
 [project.scripts]
 arl = "arl.cli:main"

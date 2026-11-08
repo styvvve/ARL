@@ -2,121 +2,108 @@ from __future__ import annotations
 
 import ast
 import operator
-import os
-import re
-import unicodedata
-from pathlib import Path
+from typing import Callable
+from dataclasses import dataclass
 
-RACINE = Path(__file__).resolve().parents[2]
-DOSSIER_NOTES = Path(os.getenv("ARL_DOSSIER_NOTES", RACINE / "data" / "notes")).resolve()
-TAILLE_MAX = 4000 #protege le contexte
+from arl.notes import NotesRepository
 
 _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
         ast.Div: operator.truediv, ast.Pow: operator.pow, ast.Mod: operator.mod,
         ast.USub: operator.neg, ast.UAdd: operator.pos}
 
-def _evaluer(noeud: ast.AST) -> float:
-    if isinstance(noeud, ast.Constant) and isinstance(noeud.value, (int, float)):
-        return noeud.value
-    if isinstance(noeud, ast.BinOp) and type(noeud.op) in _OPS:
-        left, right = _evaluer(noeud.left), _evaluer(noeud.right)
-        if isinstance(noeud.op, ast.Pow) and abs(right) > 100:
+def _evaluate(node: ast.AST) -> float:
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return node.value
+    if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
+        left, right = _evaluate(node.left), _evaluate(node.right)
+        if isinstance(node.op, ast.Pow) and abs(right) > 100:
             raise ValueError("exposant trop grand")
-        return _OPS[type(noeud.op)](left, right)
-    if isinstance(noeud, ast.UnaryOp) and type(noeud.op) in _OPS:
-        return _OPS[type(noeud.op)](_evaluer(noeud.operand))    if isinstance(noeud, ast.Num):
-        raise ValueError(f"'{noeud.n}' n'est pas un nombre ; remplace le par sa valeur réelle"
+        return _OPS[type(node.op)](left, right)
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
+        return _OPS[type(node.op)](_evaluate(node.operand))
+    if isinstance(node, ast.Name):
+        raise ValueError(f"'{node.id}' n'est pas un nombre ; remplace le par sa valeur réelle "
                          f"(trouve la d'abord avec rechercher_notes ou lire_note).")
-    raise ValueError(f"élément non autorisé : {type(noeud).__name__}")
+    raise ValueError(f"élément non autorisé : {type(node).__name__}")
 
 
-def calculer(expression: str) -> str:
+def calculate(expression: str) -> str:
     """Évalue une expression arithmétique (+ - * / ** % et parenthèses)."""
     if len(expression) > 200:
         return "ERREUR: expression trop longue (200 caractères max)"
     try:
-        resultat = _evaluer(ast.parse(expression.replace(",", "."), mode="eval").body)
+        result = _evaluate(ast.parse(expression.replace(",", "."), mode="eval").body)
     except ZeroDivisionError:
         return "ERREUR: division par zéro"
     except (ValueError, SyntaxError) as exc:
         return f"ERREUR: expression invalide ({exc})"
-    resultat = round(resultat, 6)
-    return str(int(resultat)) if float(resultat).is_integer() else str(resultat)
+    result = round(result, 6)
+    return str(int(result)) if float(result).is_integer() else str(result)
 
 
-def lister_notes() -> str:
-    """Liste les notes disponibles."""
-    noms = sorted(p.name for p in DOSSIER_NOTES.glob("*.md"))
-    return "\n".join(noms) if noms else "Aucune note."
+@dataclass(frozen=True)
+class Tool:
+    name: str
+    description: str
+    parameters: dict[str, str]          # nom du paramètre -> description (tous des chaînes)
+    function: Callable[..., str]
+    level: str = "lecture"             # « lecture » ou « ecriture »
+
+    def schema(self) -> dict:
+        properties = {k: {"type": "string", "description": v} for k, v in self.parameters.items()}
+        return {"type": "function", "function": {
+            "name": self.name, "description": self.description,
+            "parameters": {"type": "object", "properties": properties, "required": list(properties)}}}
 
 
-def _chemin_sur(nom: str) -> Path | None:
-    """Renvoie le chemin de la note si et seulement s'il est DANS le dossier de notes."""
-    if "/" in nom or "\\" in nom or not nom.endswith(".md"):
-        return None
-    chemin = (DOSSIER_NOTES / nom).resolve()
-    return chemin if chemin.parent == DOSSIER_NOTES and chemin.is_file() else None
+class ToolBox:
+    def __init__(self, repository: NotesRepository):
+        self.repository = repository
+        self.tools: dict[str, Tool] = {}
+        for tool in (
+            Tool("rechercher_notes", "Cherche des mots-clés dans toutes les notes et renvoie les noms "
+                  "des notes pertinentes avec un extrait. À utiliser en premier quand tu ne sais pas "
+                  "quelle note lire.", {"query": "mots-clés tirés de la question"}, self._search),
+            # Exemples volontairement neutres : un exemple tiré des vraies notes (nom, montant)
+            # est recopié tel quel par les petits modèles, qui répondent alors sans appeler d'outil.
+            Tool("lire_note", "Renvoie le contenu complet d'une note. Nom exact requis, tel que "
+                  "renvoyé par rechercher_notes.", {"name": "nom de fichier se terminant par .md"}, self._read),
+            Tool("lister_notes", "Liste les noms de toutes les notes disponibles.", {}, self._list),
+            Tool("calculer", "Calcule une expression arithmétique, ex. '(3+4)*2'. Utilise-le pour "
+                  "TOUT calcul au lieu de calculer de tête.", {"expression": "expression arithmétique"},
+                  calculate),
+        ):
+            self.add(tool)
 
+    def add(self, tool: Tool) -> None:
+        self.tools[tool.name] = tool
 
-def lire_note(nom: str) -> str:
-    """Lit une note ; refuse tout chemin hors du dossier de notes."""
-    chemin = _chemin_sur(nom)
-    if chemin is None:
-        return f"ERREUR: note introuvable ou nom invalide : {nom}. Utilise lister_notes."
-    return chemin.read_text(encoding="utf-8")[:TAILLE_MAX]
+    def schemas(self) -> list[dict]:
+        return [tool.schema() for tool in self.tools.values()]
 
+    def execute(self, name: str, arguments: dict) -> str:
+        """Point d'exécution unique : liste blanche + validation des arguments."""
+        tool = self.tools.get(name)
+        if tool is None:
+            return f"ERREUR: outil inconnu '{name}'. Outils disponibles : {', '.join(self.tools)}"
+        if not isinstance(arguments, dict) or set(arguments) != set(tool.parameters) \
+                or not all(isinstance(v, str) for v in arguments.values()):
+            return f"ERREUR: arguments invalides pour {name} ; attendu : {list(tool.parameters) or 'aucun'}"
+        return tool.function(**arguments)
 
-def _plat(texte: str) -> str:
-    return unicodedata.normalize("NFKD", texte).encode("ascii", "ignore").decode().lower()
+    # --- adaptateurs vers le dépôt (le stockage reste dans notes.py) ---
+    def _list(self) -> str:
+        return "\n".join(self.repository.list()) or "Aucune note."
 
+    def _read(self, name: str) -> str:
+        text = self.repository.read(name)
+        return text if text is not None else \
+            f"ERREUR: note introuvable ou nom invalide : {name}. Utilise rechercher_notes ou lister_notes."
 
-def rechercher_notes(requete: str) -> str:
-    """Cherche des mots-clés dans les notes ; renvoie au plus 5 notes avec un extrait."""
-    mots = [m for m in re.findall(r"\w{3,}", _plat(requete))][:8]
-    if not mots:
-        return "ERREUR: requête vide ; donne un ou plusieurs mots-clés."
-    scores = []
-    for chemin in DOSSIER_NOTES.glob("*.md"):
-        texte = chemin.read_text(encoding="utf-8")
-        plat = _plat(texte)
-        score = sum(plat.count(m) for m in mots) + 3 * sum(m in _plat(chemin.name) for m in mots) #ranking heuristic
-        if score:
-            pos = min((plat.find(m) for m in mots if m in plat), default=0)
-            extrait = " ".join(texte[max(0, pos - 60): pos + 140].split())
-            scores.append((score, chemin.name, extrait))
-    if not scores:
-        return "Aucune note ne contient ces mots-clés."
-    scores.sort(key=lambda x: (-x[0], x[1]))
-    return "\n".join(f"{nom} (score {s}) : …{extrait}…" for s, nom, extrait in scores[:5])
-
-
-REGISTRE = {"lister_notes": lister_notes, "lire_note": lire_note,
-            "rechercher_notes": rechercher_notes, "calculer": calculer}
-
-
-def _schema(nom: str, description: str, parametres: dict | None = None) -> dict:
-    proprietes = {k: {"type": "string", "description": v} for k, v in (parametres or {}).items()}
-    return {"type": "function", "function": {
-        "name": nom, "description": description,
-        "parameters": {"type": "object", "properties": proprietes, "required": list(proprietes)}}}
-
-
-SCHEMAS = [
-    _schema("rechercher_notes", "Cherche des mots-clés dans toutes les notes et renvoie les noms "
-        "des notes pertinentes avec un extrait. À utiliser en premier quand tu ne sais pas "
-        "quelle note lire.", {"requete": "mots-clés, ex. 'budget Beta'"}),
-    _schema("lire_note", "Renvoie le contenu complet d'une note. Nom exact requis, "
-        "ex. 'projet-alpha.md'.", {"nom": "nom de fichier se terminant par .md"}),
-    _schema("lister_notes", "Liste les noms de toutes les notes disponibles."),
-    _schema("calculer", "Calcule une expression arithmétique, ex. '1200*1.2'. Utilise-le pour "
-        "TOUT calcul au lieu de calculer de tête.", {"expression": "expression arithmétique"}),
-]
-def executer_outil(nom: str, arguments: dict) -> str:
-    """Point d'exécution unique : liste blanche + capture des erreurs d'arguments."""
-    fonction = REGISTRE.get(nom)
-    if fonction is None:
-        return f"ERREUR: outil inconnu '{nom}'. Outils disponibles : {', '.join(REGISTRE)}"
-    try:
-        return fonction(**arguments)
-    except TypeError as exc:
-        return f"ERREUR: arguments invalides pour {nom} ({exc})"
+    def _search(self, query: str) -> str:
+        if not query.strip():
+            return "ERREUR: requête vide ; donne un ou plusieurs mots-clés."
+        results = self.repository.search(query)
+        if not results:
+            return "Aucune note ne contient ces mots-clés."
+        return "\n".join(f"{name} (score {score}) : …{extract}…" for name, score, extract in results)
